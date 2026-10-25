@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --reader-bg: 250 244 224;
+  --reader-fg: 40 30 20;
+  --reader-accent: 200 120 80;
+  --reader-panel: 240 232 210;
+  --reader-muted: 120 110 95;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: var(--reader-font, system-ui), 'Microsoft YaHei', 'PingFang SC',
+    sans-serif;
+}
+
+body {
+  background: rgb(var(--reader-bg));
+  color: rgb(var(--reader-fg));
+  user-select: none;
+}
+
+.no-drag {
+  -webkit-user-select: none;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgb(var(--reader-muted) / 0.4);
+  border-radius: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--reader-muted) / 0.7);
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}
+
+/* Reader content text selectable */
+.reader-content,
+.reader-content * {
+  user-select: text;
+}
+
+/* When the user toggles cursor hide via a click action, every pixel of the
+   app — including overlays, toolbar, panels — renders an invisible cursor.
+   EPUB iframes are propagated separately by FoliateRenderer. */
+body.cursor-hidden,
+body.cursor-hidden * {
+  cursor: none !important;
+}
+
+.reader-page-turn-next {
+  animation: reader-page-turn-next 240ms ease-out;
+}
+
+.reader-page-turn-prev {
+  animation: reader-page-turn-prev 240ms ease-out;
+}
+
+.pdf-reader-shell {
+  background: rgb(var(--reader-bg));
+}
+
+.pdf-reader-container {
+  background: rgb(var(--reader-bg));
+}
+
+.pdf-reader-container .pdfViewer {
+  padding: max(4px, calc(var(--pdf-page-margin, 24px) / 2)) 0
+    var(--pdf-page-margin, 24px);
+}
+
+.pdf-reader-container .pdfViewer .page {
+  margin: 0 auto var(--pdf-page-margin, 24px);
+  border: 0;
+  box-shadow: 0 1px 8px rgb(0 0 0 / 0.18);
+}
+
+.pdf-reader-container .textLayer,
+.pdf-reader-container .annotationLayer {
+  user-select: text;
+}
+
+@keyframes reader-page-turn-next {
+  from {
+    opacity: 0.78;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes reader-page-turn-prev {
+  from {
+    opacity: 0.78;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-page-turn-next,
+  .reader-page-turn-prev {
+    animation: none;
+  }
+}

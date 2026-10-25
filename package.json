@@ -1,0 +1,39 @@
+{
+  "name": "ereader",
+  "version": "0.1.0",
+  "description": "Windows 桌面电子阅读器，支持 epub/mobi/azw3/pdf/txt，超大字体、多种翻页方式",
+  "main": "out/main/index.cjs",
+  "author": "ereader",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "set ELECTRON_RUN_AS_NODE=&& electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "set ELECTRON_RUN_AS_NODE=&& electron-vite preview",
+    "start": "set ELECTRON_RUN_AS_NODE=&& electron-vite preview",
+    "package": "set ELECTRON_RUN_AS_NODE=&& electron-vite build && electron-builder --win --x64",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0",
+    "foliate-js": "github:johnfactotum/foliate-js",
+    "pdfjs-dist": "^4.7.76",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "autoprefixer": "^10.4.20",
+    "electron": "^32.1.2",
+    "electron-builder": "^25.0.5",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  }
+}
