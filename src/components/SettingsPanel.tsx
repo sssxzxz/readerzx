@@ -11,6 +11,8 @@ import {
 } from '@shared/types';
 import KeyBindingEditor from './KeyBindingEditor';
 import { useEffect, useState } from 'react';
+import { VOICE_HELP, VOICE_PAGING_HELP } from '@shared/voice';
+import { prepareVoiceSound } from '@/lib/voiceSound';
 
 const CLICK_ACTION_OPTIONS: { id: ClickAction; label: string }[] = [
   { id: 'none', label: '无（不响应）' },
@@ -21,7 +23,6 @@ const CLICK_ACTION_OPTIONS: { id: ClickAction; label: string }[] = [
   { id: 'showCursor', label: '显示鼠标指针' },
   { id: 'toggleAuto', label: '启停自动翻页' },
   { id: 'toggleTts', label: '启停朗读' },
-  { id: 'toggleImmersive', label: '切换沉浸模式' },
   { id: 'toggleFullscreen', label: '切换全屏' },
 ];
 
@@ -64,7 +65,7 @@ export default function SettingsPanel() {
     removeSettingsForCurrentBook,
   } =
     useReaderStore();
-  const [tab, setTab] = useState<'display' | 'paging' | 'tts' | 'keys'>('display');
+  const [tab, setTab] = useState<'display' | 'paging' | 'tts' | 'voice' | 'keys'>('display');
   const [ttsVoices, setTtsVoices] = useState<SpeechSynthesisVoice[]>([]);
   const isPdf = book?.format === 'pdf';
 
@@ -132,7 +133,7 @@ export default function SettingsPanel() {
           </button>
         </div>
         <div className="flex border-b border-muted/20">
-          {(['display', 'paging', 'tts', 'keys'] as const).map((t) => (
+          {(['display', 'paging', 'tts', 'voice', 'keys'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -140,7 +141,7 @@ export default function SettingsPanel() {
                 tab === t ? 'border-b-2 border-accent text-fg' : 'text-muted'
               }`}
             >
-              {t === 'display' ? '显示' : t === 'paging' ? '翻页' : t === 'tts' ? '朗读' : '按键'}
+              {t === 'display' ? '显示' : t === 'paging' ? '翻页' : t === 'tts' ? '朗读' : t === 'voice' ? '语音控制' : '按键'}
             </button>
           ))}
         </div>
@@ -666,6 +667,28 @@ export default function SettingsPanel() {
             </>
           )}
 
+          {tab === 'voice' && (
+            <div className="space-y-4 text-sm">
+              <label className="flex items-center justify-between gap-3">
+                仅语音翻页
+                <input type="checkbox" checked={settings.voicePagingOnly} onChange={e => setSettings({ voicePagingOnly: e.target.checked })} />
+              </label>
+              <p className="text-xs text-muted">默认关闭。开启后只执行上一页、下一页相关口令；点击麦克风按钮可关闭监听。</p>
+              <label className="flex items-center justify-between gap-3">
+                成功执行时播放音效
+                <input type="checkbox" checked={settings.voiceSoundEnabled} onChange={e => {
+                  setSettings({ voiceSoundEnabled: e.target.checked });
+                  if (e.target.checked) prepareVoiceSound();
+                }} />
+              </label>
+              <label className="flex items-center justify-between gap-3">
+                显示语音识别情况
+                <input type="checkbox" checked={settings.voiceShowRecognition} onChange={e => setSettings({ voiceShowRecognition: e.target.checked })} />
+              </label>
+              <p className="text-muted leading-relaxed">{settings.voicePagingOnly ? VOICE_PAGING_HELP : VOICE_HELP}</p>
+              {!settings.voicePagingOnly && <p className="text-muted">放大、缩小用于调整字号；PDF 则缩放页面。全屏后静止 3 秒自动隐藏鼠标，移动即可显示，Esc 退出全屏。</p>}
+            </div>
+          )}
           {tab === 'keys' && <KeyBindingEditor />}
         </div>
       </div>
@@ -757,7 +780,7 @@ function ClickActionMatrix({
     <div className="rounded border border-muted/20 p-3 bg-bg/40 space-y-3">
       <div className="text-xs text-muted">
         在文本阅读区点击对应区域时触发的动作。可绑定动作：
-        <b> 翻页、鼠标指针、自动翻页、朗读、沉浸、全屏</b>。
+        <b> 翻页、鼠标指针、自动翻页、朗读、全屏</b>。
       </div>
 
       <div className="text-xs font-semibold text-fg/80 pt-1">左键 · 半区 / 单双击</div>

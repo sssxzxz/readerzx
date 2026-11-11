@@ -1,6 +1,6 @@
 {
   "name": "ereader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows 桌面电子阅读器，支持 epub/mobi/azw3/pdf/txt，超大字体、多种翻页方式",
   "main": "out/main/index.cjs",
   "author": "ereader",

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { registerFileHandlers } from './ipc/fileHandlers';
 import { registerStoreHandlers } from './ipc/storeHandlers';
+import { registerVoiceHandlers } from './ipc/voiceHandlers';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -99,11 +100,6 @@ function buildMenu(): void {
           accelerator: 'F6',
           click: () => mainWindow?.webContents.send('menu:toggle-tts'),
         },
-        {
-          label: '沉浸阅读模式',
-          accelerator: 'F8',
-          click: () => mainWindow?.webContents.send('menu:toggle-immersive'),
-        },
         { type: 'separator' },
         {
           label: '全屏',
@@ -144,6 +140,7 @@ app.whenReady().then(() => {
   registerFileHandlers();
   registerStoreHandlers();
   registerWindowHandlers();
+  registerVoiceHandlers(() => mainWindow);
   buildMenu();
   createWindow();
   // Notify renderer when fullscreen state flips (e.g., user pressed Esc)

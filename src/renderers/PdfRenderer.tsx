@@ -13,8 +13,9 @@ import 'pdfjs-dist/web/pdf_viewer.css';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { OpenedBook, ReaderSettings, SearchResult } from '@shared/types';
 import type { RendererHandle, TocItem, TtsSnapshot } from './FoliateRenderer';
+import { loadPdfWithRetry, type PdfLoadAttempt } from '@/lib/pdfLoading';
 
-(pdfjsLib.GlobalWorkerOptions as any).workerSrc = pdfWorkerUrl;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface Props {
   book: OpenedBook;
@@ -45,8 +46,6 @@ interface PdfAnchor {
   pageOffsetRatio: number;
 }
 
-const PDF_LOAD_TIMEOUT_MS = 45_000;
-const PDF_WORKER_FALLBACK_MS = 6_000;
 const PDF_OUTLINE_TIMEOUT_MS = 8_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
 const MIN_SCALE = 0.25;
@@ -69,7 +68,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerElRef = useRef<HTMLDivElement>(null);
   const docRef = useRef<any>(null);
-  const loadingTaskRef = useRef<any>(null);
+  const loadingTaskRef = useRef<PdfLoadAttempt<pdfjsLib.PDFDocumentProxy> | null>(null);
   const apiRef = useRef<PdfViewerApi | null>(null);
   const anchorRef = useRef<PdfAnchor>({ page: 1, pageOffsetRatio: 0 });
   const currentPageRef = useRef(1);
@@ -78,6 +77,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
 
   useEffect(() => {
     let cancelled = false;
+    const abortController = new AbortController();
     const container = containerRef.current;
     const viewerEl = viewerElRef.current;
     if (!container || !viewerEl) return;
@@ -92,6 +92,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
 
     const cleanup = () => {
       cancelled = true;
+      abortController.abort();
       try {
         loadingTaskRef.current?.destroy?.();
       } catch {
@@ -100,7 +101,6 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
       try {
         apiRef.current?.viewer?.setDocument?.(null);
         apiRef.current?.linkService?.setDocument?.(null);
-        docRef.current?.destroy?.();
       } catch {
         /* ignore */
       }
@@ -145,7 +145,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
         setStage(`正在解析 PDF ${formatBytes(data.byteLength)}`);
         const doc = await loadPdfDocumentWithFallback(data, setStage, (task) => {
           loadingTaskRef.current = task;
-        });
+        }, abortController.signal);
         if (cancelled) return;
 
         docRef.current = doc;
@@ -188,6 +188,8 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
           })
           .catch((err) => console.warn('PDF TOC diagnostic:', err));
       } catch (err: any) {
+        if (cancelled) return;
+        loadingTaskRef.current?.destroy();
         console.error('PDF load error:', err);
         setLoadingMsg('');
         const extra = isTimeoutError(err)
@@ -514,43 +516,38 @@ function waitForEvent(eventBus: any, eventName: string, timeoutMs: number): Prom
 async function loadPdfDocumentWithFallback(
   sourceData: Uint8Array,
   setStage: (msg: string) => void,
-  setLoadingTask: (task: any) => void,
-): Promise<any> {
-  const workerData = sourceData.slice();
-  const fallbackData = sourceData.slice();
-  let task = pdfjsLib.getDocument({ data: workerData });
-  setLoadingTask(task);
-  task.onProgress = (progress: { loaded?: number; total?: number }) => {
-    setStage(`正在解析 PDF ${formatPdfProgress(progress, sourceData.byteLength)}`);
-  };
-
-  try {
-    return await withTimeout(
-      task.promise,
-      PDF_WORKER_FALLBACK_MS,
-      `PDF Worker 解析超过 ${formatElapsed(PDF_WORKER_FALLBACK_MS)}`,
-    );
-  } catch (err) {
-    if (!isTimeoutError(err)) throw err;
-    console.warn('PDF worker stalled; retrying without worker.', err);
-    try {
-      await task.destroy?.();
-    } catch {
-      /* ignore */
-    }
-  }
-
-  setStage('PDF Worker 响应慢，正在切换到兼容模式');
-  task = pdfjsLib.getDocument({ data: fallbackData, disableWorker: true });
-  setLoadingTask(task);
-  task.onProgress = (progress: { loaded?: number; total?: number }) => {
-    setStage(`兼容模式解析 PDF ${formatPdfProgress(progress, sourceData.byteLength)}`);
-  };
-  return withTimeout(
-    task.promise,
-    PDF_LOAD_TIMEOUT_MS,
-    `PDF 解析超过 ${formatElapsed(PDF_LOAD_TIMEOUT_MS)}，已停止本次打开`,
-  );
+  setLoadingTask: (task: PdfLoadAttempt<pdfjsLib.PDFDocumentProxy>) => void,
+  signal: AbortSignal,
+): Promise<pdfjsLib.PDFDocumentProxy> {
+  return loadPdfWithRetry(sourceData, (data, directWorker) => {
+    // The public worker/port API replaces the removed disableWorker option.
+    // A fresh direct module worker bypasses PDF.js's default bootstrap on retry.
+    const nativeWorker = directWorker ? new Worker(pdfWorkerUrl, { type: 'module' }) : null;
+    let worker: pdfjsLib.PDFWorker;
+    try { worker = nativeWorker ? pdfjsLib.PDFWorker.fromPort({ port: nativeWorker }) : new pdfjsLib.PDFWorker(); }
+    catch (error) { nativeWorker?.terminate(); throw error; }
+    let task: pdfjsLib.PDFDocumentLoadingTask;
+    try { task = pdfjsLib.getDocument({ data, worker }); }
+    catch (error) { worker.destroy(); nativeWorker?.terminate(); throw error; }
+    let destroyed = false;
+    return {
+      promise: task.promise,
+      set onProgress(callback: PdfLoadAttempt<pdfjsLib.PDFDocumentProxy>['onProgress']) { task.onProgress = callback ?? (() => {}); },
+      destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        // Never wait on a stalled worker's shutdown handshake before retrying.
+        void task.destroy().catch(() => {});
+        worker.destroy();
+        nativeWorker?.terminate();
+      },
+    };
+  }, {
+    signal,
+    onTask: setLoadingTask,
+    onRetry: () => setStage('PDF 响应超时，正在重新启动解析'),
+    onProgress: (progress, retry) => setStage(`${retry ? '重新' : '正在'}解析 PDF ${formatPdfProgress(progress, sourceData.byteLength)}`),
+  });
 }
 
 function getCurrentAnchor(

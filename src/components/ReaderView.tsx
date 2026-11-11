@@ -4,6 +4,7 @@ import FoliateRenderer, { type RendererHandle, type TocItem } from '@/renderers/
 import PdfRenderer from '@/renderers/PdfRenderer';
 import TxtRenderer from '@/renderers/TxtRenderer';
 import Toolbar from './Toolbar';
+import VoiceControlButton from './VoiceControlButton';
 import ProgressBar from './ProgressBar';
 import SettingsPanel from './SettingsPanel';
 import TocPanel from './TocPanel';
@@ -14,6 +15,9 @@ import SearchPanel from './SearchPanel';
 import { useKeyBindings } from '@/hooks/useKeyBindings';
 import { useAutoPaging } from '@/hooks/useAutoPaging';
 import { useSpeechReader } from '@/hooks/useSpeechReader';
+import { useVoiceControl } from '@/hooks/useVoiceControl';
+import { useIdleCursor } from '@/hooks/useIdleCursor';
+import { isVoiceCommandAllowed, type VoiceCommand } from '@shared/voice';
 import { HIGHLIGHT_COLORS, type ClickAction, type ClickActions } from '@shared/types';
 
 /** ms window for double-click discrimination (only used when single ≠ double). */
@@ -54,6 +58,9 @@ export default function ReaderView() {
   const wheelLockRef = useRef<number>(0);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const showPointer = useCallback(() => setCursorHidden(false), [setCursorHidden]);
+  const idleCursor = useIdleCursor(fullscreen && !!book, showPointer);
+  const effectiveCursorHidden = cursorHidden || idleCursor.hidden;
 
   /** Last color the user picked, persisted across selections within one session. */
   const [lastColor, setLastColor] = useState<string>(HIGHLIGHT_COLORS[0].color);
@@ -104,10 +111,10 @@ export default function ReaderView() {
   // EPUB iframes are propagated separately by FoliateRenderer.
   useEffect(() => {
     const cls = 'cursor-hidden';
-    if (cursorHidden) document.body.classList.add(cls);
+    if (effectiveCursorHidden) document.body.classList.add(cls);
     else document.body.classList.remove(cls);
     return () => document.body.classList.remove(cls);
-  }, [cursorHidden]);
+  }, [effectiveCursorHidden]);
 
   const shouldAnimatePageTurn = useCallback(
     (dir: 'next' | 'prev') => {
@@ -142,12 +149,63 @@ export default function ReaderView() {
     turnPage,
   });
   const lastTtsToggleNonceRef = useRef(0);
+  const executeVoice = useCallback(async (command: VoiceCommand): Promise<string> => {
+    const store = useReaderStore.getState();
+    if (!isVoiceCommandAllowed(command, store.settings.voicePagingOnly)) throw new Error('仅语音翻页已开启');
+    if (!store.book || !rendererRef.current || store.loading) throw new Error('页面尚未就绪');
+    if (command === 'next' || command === 'prev') {
+      const before = store.currentLocation;
+      const id = store.book.id;
+      turnPage(command);
+      const deadline = performance.now() + 1800;
+      while (performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        const current = useReaderStore.getState();
+        if (current.book?.id !== id) throw new Error('书籍已切换');
+        if (current.currentLocation !== before) return command === 'next' ? '已翻到下一页' : '已翻到上一页';
+      }
+      throw new Error('已到边界或页面暂未就绪');
+    }
+    if (command === 'zoom-in' || command === 'zoom-out') {
+      if (store.book.format === 'pdf') {
+        if (command === 'zoom-in') rendererRef.current.zoomIn?.();
+        else rendererRef.current.zoomOut?.();
+        if (useReaderStore.getState().settings.pdfScale === store.settings.pdfScale && useReaderStore.getState().settings.pdfScaleMode === store.settings.pdfScaleMode) throw new Error('已到缩放范围边界');
+        return `缩放 ${useReaderStore.getState().settings.pdfScale}%`;
+      }
+      const size = Math.max(8, store.settings.fontSize + (command === 'zoom-in' ? 2 : -2));
+      if (size === store.settings.fontSize) throw new Error('已到最小字号');
+      store.setSettings({ fontSize: size });
+      return `字号 ${size}`;
+    }
+    if (command === 'auto-start' || command === 'auto-stop') {
+      const on = command === 'auto-start';
+      if (store.autoOn !== on) store.toggleAuto();
+      return on ? '自动翻页已开启' : '自动翻页已停止';
+    }
+    if (command === 'fullscreen-enter' || command === 'fullscreen-exit') {
+      const on = command === 'fullscreen-enter';
+      await store.setFullscreen(on);
+      if (useReaderStore.getState().fullscreen !== on) throw new Error('全屏切换失败');
+      return on ? '已进入全屏' : '已退出全屏';
+    }
+    throw new Error('不支持的口令');
+  }, [turnPage]);
+  const voice = useVoiceControl(view === 'home' ? undefined : book?.id, executeVoice, settings.voiceSoundEnabled);
+  const toggleTts = useCallback(() => {
+    voice.stop();
+    tts.toggle();
+  }, [voice.stop, tts.toggle]);
+  const toggleVoice = useCallback(() => {
+    tts.stop();
+    voice.toggle();
+  }, [tts.stop, voice.toggle]);
 
   useEffect(() => {
     if (!ttsToggleNonce || ttsToggleNonce === lastTtsToggleNonceRef.current) return;
     lastTtsToggleNonceRef.current = ttsToggleNonce;
-    tts.toggle();
-  }, [ttsToggleNonce, tts.toggle]);
+    toggleTts();
+  }, [ttsToggleNonce, toggleTts]);
 
   // Bridge external page triggers (keyboard, auto, click, wheel) to the renderer
   useEffect(() => {
@@ -194,7 +252,7 @@ export default function ReaderView() {
         toggleAuto();
         break;
       case 'toggleTts':
-        tts.toggle();
+        toggleTts();
         break;
       case 'toggleImmersive':
         toggleImmersive();
@@ -206,7 +264,7 @@ export default function ReaderView() {
       default:
         break;
     }
-  }, [toggleAuto, toggleFullscreen, toggleImmersive, tts.toggle, turnPage]);
+  }, [toggleAuto, toggleFullscreen, toggleImmersive, toggleTts, turnPage]);
 
   /**
    * Dispatch a click on `half` to the configured action, with double-click
@@ -592,12 +650,32 @@ export default function ReaderView() {
           onSearch={() => setShowSearch((v) => !v)}
           ttsStatus={tts.status}
           ttsMessage={tts.message}
-          onToggleTts={tts.toggle}
+          onToggleTts={toggleTts}
+          voiceStatus={voice.status}
+          voiceMessage={voice.message}
+          onToggleVoice={toggleVoice}
           onStopTts={tts.stop}
           onZoomIn={() => rendererRef.current?.zoomIn?.()}
           onZoomOut={() => rendererRef.current?.zoomOut?.()}
           onResetZoom={() => rendererRef.current?.resetZoom?.()}
         />
+      )}
+      {immersive && (
+        <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded bg-panel/90 shadow-sm">
+          {voice.active && <VoiceControlButton status={voice.status} message={voice.message} onToggle={voice.stop} pagingOnly={settings.voicePagingOnly} />}
+          <button onClick={() => void toggleFullscreen()} title="退出全屏 (Esc / F11)" className="h-8 px-2 text-xs rounded hover:bg-muted/20">退出全屏</button>
+        </div>
+      )}
+      {voice.active && settings.voiceShowRecognition && (
+        <div data-voice-feedback role="status" title={voice.message} className={`absolute right-2 ${immersive ? 'top-12' : 'top-14'} z-30 max-w-[min(20rem,calc(100%-1rem))] truncate rounded bg-panel/90 px-2 py-1 text-xs text-muted shadow-sm pointer-events-none`}>
+          {voice.message}
+        </div>
+      )}
+      {voice.status === 'error' && (
+        <div role="alert" className={`absolute right-2 ${immersive ? 'top-2' : 'top-14'} z-40 max-w-sm p-3 rounded bg-panel shadow-lg text-sm border border-muted/20`}>
+          <p>{voice.message}</p>
+          <button className="mt-2 px-2 py-1 rounded hover:bg-muted/20" onClick={voice.stop}>关闭提示</button>
+        </div>
       )}
       <div ref={areaRef} className="flex-1 relative overflow-hidden" onWheel={onWheel}>
         {/* Renderer (sits behind the overlay) */}
@@ -647,7 +725,8 @@ export default function ReaderView() {
               onProgress={updateProgress}
               onTocReady={setToc}
               onError={setError}
-              cursorHidden={cursorHidden}
+              cursorHidden={effectiveCursorHidden}
+              onPointerActivity={idleCursor.activity}
               defaultHighlightColor={lastColor}
               onIframeAreaClick={onIframeAreaClick}
               onIframeButtonClick={onIframeButtonClick}
@@ -744,25 +823,6 @@ export default function ReaderView() {
         {cursorHidden && !immersive && (
           <div className="absolute top-2 left-2 z-30 px-2 py-0.5 rounded text-[10px] text-muted bg-panel/80 shadow pointer-events-none select-none">
             鼠标已隐藏
-          </div>
-        )}
-        {/* Immersive mode: tiny floating exit button (top-right corner) */}
-        {immersive && (
-          <div className="absolute top-1 right-1 z-40 flex gap-1 opacity-30 hover:opacity-100 transition-opacity">
-            <button
-              onClick={() => toggleImmersive()}
-              title="退出沉浸 (F8)"
-              className="w-7 h-7 rounded bg-panel/80 hover:bg-panel text-xs"
-            >
-              ✕
-            </button>
-            <button
-              onClick={() => void toggleFullscreen()}
-              title={fullscreen ? '退出全屏 (F11)' : '全屏 (F11)'}
-              className="w-7 h-7 rounded bg-panel/80 hover:bg-panel text-xs"
-            >
-              {fullscreen ? '⊠' : '⛶'}
-            </button>
           </div>
         )}
       </div>

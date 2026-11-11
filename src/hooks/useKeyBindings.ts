@@ -39,6 +39,11 @@ export function useKeyBindings(fixedLayoutZoom?: FixedLayoutZoomControls) {
     }
 
     function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && useReaderStore.getState().fullscreen) {
+        e.preventDefault();
+        void useReaderStore.getState().setFullscreen(false);
+        return;
+      }
       if (isTextInput(e.target)) return;
       const k = eventToKeyString(e);
       if (!k) return;

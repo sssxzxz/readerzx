@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { VoiceEvent } from '../shared/voice';
 import type {
   Highlight,
   ReaderSettings,
@@ -8,6 +9,13 @@ import type {
 } from '../shared/types';
 
 const api = {
+  startVoiceControl: (sessionId: number): Promise<void> => ipcRenderer.invoke('voice:start', sessionId),
+  stopVoiceControl: (): Promise<void> => ipcRenderer.invoke('voice:stop'),
+  onVoiceEvent: (cb: (event: VoiceEvent) => void) => {
+    const listener = (_e: unknown, event: VoiceEvent) => cb(event);
+    ipcRenderer.on('voice:event', listener);
+    return () => ipcRenderer.removeListener('voice:event', listener);
+  },
   // File ops
   openFileDialog: (): Promise<OpenedBook | null> =>
     ipcRenderer.invoke('file:open-dialog'),

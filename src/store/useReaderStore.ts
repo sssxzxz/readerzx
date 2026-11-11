@@ -86,7 +86,7 @@ interface ReaderStore extends UiFlags {
   toggleAuto: () => void;
   toggleImmersive: () => void;
   toggleFullscreen: () => Promise<void>;
-  setFullscreen: (on: boolean) => void;
+  setFullscreen: (on: boolean) => Promise<void>;
   setCursorHidden: (on: boolean) => void;
   toggleCursorHidden: () => void;
   setError: (e: string | null) => void;
@@ -201,9 +201,9 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
     const settings = await window.api.loadSettings();
     const recent = await window.api.loadRecent();
     const fullscreen = await window.api.isFullscreen();
-    set({ globalSettings: settings, settings, recent, fullscreen });
+    set({ globalSettings: settings, settings, recent, fullscreen, immersive: fullscreen });
     applyTheme(settings);
-    window.api.onFullscreenChange((on) => set({ fullscreen: on }));
+    window.api.onFullscreenChange((on) => set({ fullscreen: on, immersive: on, cursorHidden: false }));
   },
 
   setSettings: (patch) => {
@@ -313,6 +313,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
   },
 
   closeBook: () => {
+    if (get().fullscreen) void get().setFullscreen(false).catch(() => {});
     set({
       book: null,
       view: 'home',
@@ -362,13 +363,16 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
   toggleRecent: () => set((s) => ({ showRecent: !s.showRecent })),
   toggleNotes: () => set((s) => ({ showNotes: !s.showNotes })),
   toggleAuto: () => set((s) => ({ autoOn: !s.autoOn })),
-  toggleImmersive: () => set((s) => ({ immersive: !s.immersive })),
+  // Compatibility alias for old saved click/key bindings.
+  toggleImmersive: () => { void get().toggleFullscreen(); },
   toggleFullscreen: async () => {
-    const next = !get().fullscreen;
-    const actual = await window.api.setFullscreen(next);
-    set({ fullscreen: actual });
+    await get().setFullscreen(!get().fullscreen);
   },
-  setFullscreen: (on) => set({ fullscreen: on }),
+  setFullscreen: async (on) => {
+    const actual = await window.api.setFullscreen(on);
+    set({ fullscreen: actual, immersive: actual, cursorHidden: false,
+      ...(actual ? { showSettings: false, showToc: false, showNotes: false, showRecent: false } : {}) });
+  },
   setCursorHidden: (on) => set({ cursorHidden: on }),
   toggleCursorHidden: () => set((s) => ({ cursorHidden: !s.cursorHidden })),
   setError: (e) => set({ error: e }),

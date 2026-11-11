@@ -194,6 +194,9 @@ export interface ReaderSettings {
   ttsRate: number;
   /** Text-to-speech pitch. */
   ttsPitch: number;
+  voiceSoundEnabled: boolean;
+  voiceShowRecognition: boolean;
+  voicePagingOnly: boolean;
   /** Preferred system voice URI, when available. */
   ttsVoiceURI?: string;
   /** PDF: single page or continuous scroll. Reflow is retained for old saved settings. */
@@ -225,8 +228,8 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   toggleToc: ['F4'],
   fontUp: ['Ctrl+Equal'],
   fontDown: ['Ctrl+Minus'],
-  toggleFullscreen: ['F11'],
-  toggleImmersive: ['F8'],
+  toggleFullscreen: ['F11', 'F8'],
+  toggleImmersive: [],
   toggleNotes: ['F2'],
   cycleReadingLayout: [],
   cycleColumnCount: [],
@@ -278,6 +281,9 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   pageFlipAnimation: true,
   ttsRate: 1,
   ttsPitch: 1,
+  voiceSoundEnabled: true,
+  voiceShowRecognition: true,
+  voicePagingOnly: false,
   pdfMode: 'scroll',
   pdfScaleMode: 'width',
   pdfScale: 100,

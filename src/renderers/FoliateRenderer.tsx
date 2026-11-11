@@ -15,6 +15,7 @@ import type {
 } from '@shared/types';
 import { PRESET_THEMES } from '@shared/types';
 import { useReaderStore } from '@/store/useReaderStore';
+import { eventToKeyString } from '@/lib/keys';
 
 export interface RendererHandle {
   next: () => void;
@@ -67,6 +68,7 @@ interface Props {
   onError: (msg: string) => void;
   /** Whether to render `cursor: none` inside the iframe documents. */
   cursorHidden?: boolean;
+  onPointerActivity?: () => void;
   /** Color used for highlights created via natural iframe selection. */
   defaultHighlightColor?: string;
   /**
@@ -142,6 +144,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
     onTocReady,
     onError,
     cursorHidden,
+    onPointerActivity,
     defaultHighlightColor,
     onIframeAreaClick,
     onIframeButtonClick,
@@ -185,6 +188,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
   const drawnRef = useRef<Map<string, string>>(new Map());
   /** Latest values for callbacks fired from iframe listeners (avoids re-attaching). */
   const callbacksRef = useRef({
+    onPointerActivity,
     onIframeAreaClick,
     onIframeButtonClick,
     onIframeWheel,
@@ -192,6 +196,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
     defaultHighlightColor,
   });
   callbacksRef.current = {
+    onPointerActivity,
     onIframeAreaClick,
     onIframeButtonClick,
     onIframeWheel,
@@ -492,6 +497,21 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
 
     // Apply current cursor state as soon as the iframe loads
     applyCursorToDoc(doc, cursorHiddenRef.current);
+    doc.addEventListener('mousemove', () => callbacksRef.current.onPointerActivity?.());
+    doc.addEventListener('mousedown', () => callbacksRef.current.onPointerActivity?.(), true);
+    doc.addEventListener('keydown', (event) => {
+      const store = useReaderStore.getState();
+      if (event.key === 'Escape' && store.fullscreen) {
+        event.preventDefault();
+        void store.setFullscreen(false);
+        return;
+      }
+      const key = eventToKeyString(event);
+      if (key && store.settings.bindings.toggleFullscreen.includes(key)) {
+        event.preventDefault();
+        void store.toggleFullscreen();
+      }
+    }, true);
 
     // Track mousedown position so we can distinguish a click (no drag) from
     // a selection drag. Browsers normally suppress `click` after a drag, but

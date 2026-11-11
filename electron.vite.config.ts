@@ -22,6 +22,32 @@ function foliatePdfStubPlugin(): Plugin {
   };
 }
 
+// A native fullscreen resize can reach Foliate's View while its iframe is
+// navigating and has no body yet. Its load handler renders again when ready.
+// Keep this compatibility guard in source rather than editing node_modules.
+function foliateLoadingResizeGuard(): Plugin {
+  return {
+    name: 'foliate-loading-resize-guard',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!/foliate-js[\\/]paginator\.js$/.test(id)) return null;
+      const guards: Array<[RegExp, string]> = [
+        [/render\(layout\) \{\s*if \(!layout\) return/,
+          'render(layout) {\n        if (!layout || !this.document?.documentElement || !this.document?.body) return'],
+        [/render\(\) \{\s*if \(!this\.#view\) return/,
+          'render() {\n        if (!this.#view?.document?.body) return'],
+        [/#afterScroll\(reason\) \{/,
+          '#afterScroll(reason) {\n        if (!this.#view?.document?.body) return'],
+      ];
+      for (const [target, replacement] of guards) {
+        if (!target.test(code)) this.error('Foliate paginator changed: review the iframe readiness guards.');
+        code = code.replace(target, replacement);
+      }
+      return code;
+    },
+  };
+}
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
@@ -58,7 +84,7 @@ export default defineConfig({
         '@shared': resolve(__dirname, 'shared'),
       },
     },
-    plugins: [foliatePdfStubPlugin(), react()],
+    plugins: [foliatePdfStubPlugin(), foliateLoadingResizeGuard(), react()],
     build: {
       outDir: resolve(__dirname, 'out/renderer'),
       rollupOptions: {

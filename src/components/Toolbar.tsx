@@ -1,5 +1,7 @@
 import { useReaderStore } from '@/store/useReaderStore';
 import type { TtsStatus } from '@/hooks/useSpeechReader';
+import type { VoiceState } from '@shared/voice';
+import VoiceControlButton from './VoiceControlButton';
 
 interface ToolbarProps {
   onSearch?: () => void;
@@ -7,6 +9,9 @@ interface ToolbarProps {
   ttsMessage?: string | null;
   onToggleTts?: () => void;
   onStopTts?: () => void;
+  voiceStatus: VoiceState;
+  voiceMessage: string;
+  onToggleVoice: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onResetZoom?: () => void;
@@ -18,6 +23,9 @@ export default function Toolbar({
   ttsMessage,
   onToggleTts,
   onStopTts,
+  voiceStatus,
+  voiceMessage,
+  onToggleVoice,
   onZoomIn,
   onZoomOut,
   onResetZoom,
@@ -30,7 +38,6 @@ export default function Toolbar({
     toggleToc,
     toggleAuto,
     toggleNotes,
-    toggleImmersive,
     toggleFullscreen,
     fullscreen,
     autoOn,
@@ -43,7 +50,8 @@ export default function Toolbar({
   if (!book) return null;
 
   return (
-    <div className="h-12 flex items-center px-3 gap-2 bg-panel/80 border-b border-muted/20 backdrop-blur z-20">
+    <div data-reader-toolbar className="h-12 shrink-0 flex items-center px-2 gap-1 bg-panel/80 border-b border-muted/20 backdrop-blur z-20">
+      <div className="flex-1 min-w-0 h-full flex items-center gap-1 overflow-x-auto [scrollbar-width:thin] whitespace-nowrap [&>button]:shrink-0">
       <button
         onClick={() => closeBook()}
         title="返回首页"
@@ -111,7 +119,7 @@ export default function Toolbar({
         <span className="truncate">{book.name}</span>
       </div>
       {book.format === 'pdf' ? (
-        <div className="flex items-center gap-1 mr-2">
+        <div className="flex shrink-0 items-center gap-1 mr-2">
           <button
             onClick={onZoomOut}
             className="w-7 h-7 rounded hover:bg-muted/20"
@@ -139,7 +147,7 @@ export default function Toolbar({
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-1 mr-2">
+        <div className="flex shrink-0 items-center gap-1 mr-2">
           <button
             onClick={() => setSettings({ fontSize: Math.max(8, settings.fontSize - 2) })}
             className="w-7 h-7 rounded hover:bg-muted/20"
@@ -174,7 +182,7 @@ export default function Toolbar({
         book.format === 'mobi' ||
         book.format === 'azw3' ||
         book.format === 'fb2') && (
-        <div className="flex items-center mr-2 rounded overflow-hidden border border-muted/30">
+        <div className="flex shrink-0 items-center mr-2 rounded overflow-hidden border border-muted/30">
           {[1, 2, 3].map((n) => (
             <button
               key={n}
@@ -230,20 +238,13 @@ export default function Toolbar({
         </button>
       )}
       <button
-        onClick={() => toggleImmersive()}
-        title="沉浸阅读模式：隐藏所有界面 (F8)"
-        className="px-2 py-1 rounded hover:bg-muted/20 text-sm"
-      >
-        沉浸
-      </button>
-      <button
         onClick={() => void toggleFullscreen()}
         title={fullscreen ? '退出全屏 (F11)' : '全屏 (F11)'}
         className={`px-2 py-1 rounded text-sm ${
           fullscreen ? 'bg-accent text-bg' : 'hover:bg-muted/20'
         }`}
       >
-        {fullscreen ? '⊠ 退出' : '⛶ 全屏'}
+        {fullscreen ? '退出全屏' : '全屏'}
       </button>
       <button
         onClick={() => toggleSettings()}
@@ -252,6 +253,8 @@ export default function Toolbar({
       >
         设置
       </button>
+      </div>
+      <VoiceControlButton status={voiceStatus} message={voiceMessage} onToggle={onToggleVoice} pagingOnly={settings.voicePagingOnly} />
     </div>
   );
 }

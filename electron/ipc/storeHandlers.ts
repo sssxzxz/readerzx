@@ -88,6 +88,10 @@ function mergeSettings(saved: Partial<ReaderSettings> | undefined): ReaderSettin
   // new theme tokens) get sane defaults for users with old saved files.
   const merged: ReaderSettings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) };
   merged.bindings = { ...DEFAULT_BINDINGS, ...(saved?.bindings ?? {}) } as typeof DEFAULT_BINDINGS;
+  merged.bindings.toggleFullscreen = [...new Set([
+    ...merged.bindings.toggleFullscreen, ...(merged.bindings.toggleImmersive ?? []),
+  ])];
+  merged.bindings.toggleImmersive = [];
   merged.customTheme = {
     ...DEFAULT_SETTINGS.customTheme,
     ...(saved?.customTheme ?? {}),
@@ -104,6 +108,12 @@ function mergeSettings(saved: Partial<ReaderSettings> | undefined): ReaderSettin
     ...DEFAULT_SETTINGS.dragHighlightActions,
     ...(saved?.dragHighlightActions ?? {}),
   };
+  for (const key of Object.keys(merged.clickActions) as Array<keyof typeof merged.clickActions>) {
+    if (merged.clickActions[key] === 'toggleImmersive') merged.clickActions[key] = 'toggleFullscreen';
+  }
+  for (const key of ['up', 'down'] as const) {
+    if (merged.wheelActions[key] === 'toggleImmersive') merged.wheelActions[key] = 'toggleFullscreen';
+  }
   return merged;
 }
 
