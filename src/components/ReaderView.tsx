@@ -15,6 +15,9 @@ import SearchPanel from './SearchPanel';
 import { useKeyBindings } from '@/hooks/useKeyBindings';
 import { useAutoPaging } from '@/hooks/useAutoPaging';
 import { useSpeechReader } from '@/hooks/useSpeechReader';
+import { useNarrationReader } from '@/hooks/useNarrationReader';
+import NarrationPanel from './NarrationPanel';
+import type { SpeechPosition } from '@shared/narration';
 import { useVoiceControl } from '@/hooks/useVoiceControl';
 import { useIdleCursor } from '@/hooks/useIdleCursor';
 import { isVoiceCommandAllowed, type VoiceCommand } from '@shared/voice';
@@ -73,6 +76,7 @@ export default function ReaderView() {
   const hlPopupRef = useRef<typeof hlPopup>(null);
   const [pageTurn, setPageTurn] = useState<'next' | 'prev' | null>(null);
   const [showSearch, setShowSearch] = useState(false);
+  const [showNarration,setShowNarration]=useState(false);
   const suppressNextClickRef = useRef(false);
   hlPopupRef.current = hlPopup;
 
@@ -142,12 +146,15 @@ export default function ReaderView() {
     [shouldAnimatePageTurn],
   );
 
-  const tts = useSpeechReader({
+  const systemTts = useSpeechReader({
     rendererRef,
     settings,
     bookId: book?.id,
     turnPage,
   });
+  const narration=useNarrationReader({book,settings,rendererRef});
+  const tts=narration.enabled?narration:systemTts;
+  useEffect(()=>{systemTts.stop();},[narration.enabled,systemTts.stop]);
   const lastTtsToggleNonceRef = useRef(0);
   const executeVoice = useCallback(async (command: VoiceCommand): Promise<string> => {
     const store = useReaderStore.getState();
@@ -192,10 +199,13 @@ export default function ReaderView() {
     throw new Error('不支持的口令');
   }, [turnPage]);
   const voice = useVoiceControl(view === 'home' ? undefined : book?.id, executeVoice, settings.voiceSoundEnabled);
+  const beforePersonalPlay=useCallback(()=>{voice.stop();systemTts.stop();if(useReaderStore.getState().autoOn)toggleAuto();},[voice.stop,systemTts.stop,toggleAuto]);
+  const onSpeechClick=useCallback((position:SpeechPosition)=>{beforePersonalPlay();void narration.start(position);},[beforePersonalPlay,narration.start]);
   const toggleTts = useCallback(() => {
     voice.stop();
+    if(narration.enabled){systemTts.stop();if(useReaderStore.getState().autoOn)toggleAuto();}
     tts.toggle();
-  }, [voice.stop, tts.toggle]);
+  }, [voice.stop, tts.toggle,narration.enabled,systemTts.stop,toggleAuto]);
   const toggleVoice = useCallback(() => {
     tts.stop();
     voice.toggle();
@@ -636,18 +646,20 @@ export default function ReaderView() {
   );
 
   if (view === 'home' || !book) {
-    return <HomeView />;
+    return <><HomeView /><button className="fixed bottom-5 right-5 px-4 py-2 bg-panel border border-muted/30 rounded-lg shadow z-20" onClick={()=>setShowNarration(true)}>声音与听书</button><NarrationPanel open={showNarration} onClose={()=>setShowNarration(false)} narration={narration} onBeforePlay={beforePersonalPlay}/></>;
   }
 
   // TXT needs a transparent interaction layer for configurable click paging.
   // PDF and iframe formats bind the same actions directly to their content.
-  const showOverlay = settings.clickPaging && book.format === 'txt';
+  const clickReading=narration.enabled&&!!settings.narrationClickToRead;
+  const showOverlay = settings.clickPaging && book.format === 'txt' && !clickReading;
 
   return (
     <div className="w-full h-full flex flex-col bg-bg text-fg relative">
       {!immersive && (
         <Toolbar
           onSearch={() => setShowSearch((v) => !v)}
+          onNarration={()=>setShowNarration(true)}
           ttsStatus={tts.status}
           ttsMessage={tts.message}
           onToggleTts={toggleTts}
@@ -671,6 +683,7 @@ export default function ReaderView() {
           {voice.message}
         </div>
       )}
+      {narration.enabled&&narration.message&&<div role="status" data-narration-status className={`absolute left-2 ${immersive?'top-2':'top-14'} z-30 rounded bg-panel/90 px-3 py-1 text-xs shadow pointer-events-none max-w-[90%]`}>{narration.message}</div>}
       {voice.status === 'error' && (
         <div role="alert" className={`absolute right-2 ${immersive ? 'top-2' : 'top-14'} z-40 max-w-sm p-3 rounded bg-panel shadow-lg text-sm border border-muted/20`}>
           <p>{voice.message}</p>
@@ -690,6 +703,7 @@ export default function ReaderView() {
         >
           {book.format === 'pdf' ? (
             <PdfRenderer
+              onSpeechClick={clickReading?onSpeechClick:undefined}
               ref={rendererRef}
               book={book}
               settings={settings}
@@ -708,6 +722,7 @@ export default function ReaderView() {
             />
           ) : book.format === 'txt' ? (
             <TxtRenderer
+              onSpeechClick={clickReading?onSpeechClick:undefined}
               ref={rendererRef}
               book={book}
               settings={settings}
@@ -718,6 +733,7 @@ export default function ReaderView() {
             />
           ) : (
             <FoliateRenderer
+              onSpeechClick={clickReading?onSpeechClick:undefined}
               ref={rendererRef}
               book={book}
               settings={settings}
@@ -834,7 +850,8 @@ export default function ReaderView() {
           onSeek={(percent) => rendererRef.current?.goToPercent?.(percent)}
         />
       )}
-      <SettingsPanel />
+      <SettingsPanel onOpenNarration={()=>setShowNarration(true)}/>
+      <NarrationPanel open={showNarration} onClose={()=>setShowNarration(false)} narration={narration} onBeforePlay={beforePersonalPlay}/>
       <TocPanel toc={toc} onJump={(href) => rendererRef.current?.goTo(href)} />
       <RecentPanel />
       <NotesPanel

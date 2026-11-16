@@ -1,0 +1,64 @@
+name: Release Windows reader
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          git config --global url."https://github.com/".insteadOf ssh://git@github.com/
+          npm ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Check version and source
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -cne "v$version") { throw 'Tag and package version differ' }
+          npx tsc --noEmit
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/verify-narration-player.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/verify-voice-control.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          npm run build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npx electron-builder --win --x64 --config.electronDist=node_modules/electron/dist --config.win.signAndEditExecutable=false --publish never
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/verify-release.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Publish verified installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          gh release create $env:RELEASE_TAG "release/阅读器-$version-x64.exe" "release/SHA256SUMS-$version.txt" --verify-tag --title "阅读器 $version" --notes-file "docs/releases/$version.md" --draft
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $release = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
+          $asset = $release.assets | Where-Object name -eq "阅读器-$version-x64.exe"
+          if (!$asset -or $asset.size -ne (Get-Item "release/阅读器-$version-x64.exe").Length) { throw 'Uploaded installer size mismatch' }
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

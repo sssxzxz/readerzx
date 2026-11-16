@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-16",
+  "feedback": "音色尚可，但是太慢了",
+  "clone": {
+    "audioSeconds": 57.555874999999986,
+    "generationSeconds": 45.026879,
+    "secondsPerAudioMinute": 46.93895697007474,
+    "coldFirstSentenceReadySeconds": 6.541847400000001
+  },
+  "windows": {
+    "voice": "Microsoft Kangkang",
+    "medianSecondsPerAudioMinute": 0.2271626618472518
+  },
+  "cachedClicks": [
+    {
+      "seconds": 0.10348352425353369,
+      "offline": false
+    },
+    {
+      "seconds": 0.10385652352124453,
+      "offline": false
+    },
+    {
+      "seconds": 0.10413241426431341,
+      "offline": false
+    },
+    {
+      "seconds": 0.09581709274061723,
+      "offline": false
+    },
+    {
+      "seconds": 0.10226267683901824,
+      "offline": true
+    }
+  ],
+  "continuity": {
+    "audioSeconds": 1800.021333333329,
+    "segments": 995,
+    "maxGapMs": 48.76666666815663,
+    "p95GapMs": 19.5666666651764,
+    "completed": true,
+    "mode": "real-time silent output; dispatch continuity, not acoustic quality"
+  },
+  "measurement": "Generated audio is not included. Cached click uses WASAPI loopback, not physical acoustic timing. Windows synthesis is measured into memory. Voice generation remains slower than Windows TTS."
+}

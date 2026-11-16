@@ -4,6 +4,7 @@ import type { VoiceState } from '@shared/voice';
 import VoiceControlButton from './VoiceControlButton';
 
 interface ToolbarProps {
+  onNarration?:()=>void;
   onSearch?: () => void;
   ttsStatus?: TtsStatus;
   ttsMessage?: string | null;
@@ -18,6 +19,7 @@ interface ToolbarProps {
 }
 
 export default function Toolbar({
+  onNarration,
   onSearch,
   ttsStatus = 'idle',
   ttsMessage,
@@ -221,7 +223,7 @@ export default function Toolbar({
         disabled={ttsStatus === 'unavailable'}
       >
         {ttsStatus === 'loading'
-          ? '朗读中...'
+          ? '准备声音…'
           : ttsStatus === 'speaking'
             ? '⏸ 朗读'
             : ttsStatus === 'paused'
@@ -237,6 +239,7 @@ export default function Toolbar({
           停止
         </button>
       )}
+      <button onClick={onNarration} className="px-2 py-1 rounded hover:bg-muted/20 text-sm" title="音色试听、后台生成与点读">声音与听书</button>
       <button
         onClick={() => void toggleFullscreen()}
         title={fullscreen ? '退出全屏 (F11)' : '全屏 (F11)'}

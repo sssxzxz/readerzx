@@ -1,0 +1,14 @@
+const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const assert=require('node:assert/strict');const asar=require('@electron/asar');
+const version=require('../package.json').version;
+const archive=path.resolve('release/win-unpacked/resources/app.asar');
+const packaged=JSON.parse(asar.extractFile(archive,'package.json').toString('utf8'));
+assert.equal(packaged.version,version);
+const names=asar.listPackage(archive).map(p=>p.replace(/\\/g,'/'));
+for(const item of ['/out/main/index.cjs','/out/preload/preload.cjs','/out/renderer/index.html'])assert.ok(names.includes(item),'Required app entry: '+item);
+const privateFiles=names.filter(p=>/^\/(work|\.local|scripts|docs|\.git)\//.test(p)||/\.(wav|mp3|mp4|epub|mobi|azw3|pdf|onnx|gguf)$/i.test(p));
+assert.deepEqual(privateFiles,[],'Installer excludes recordings, books, models and development artifacts');
+const name=`阅读器-${version}-x64.exe`,file=path.resolve('release',name);
+const bytes=fs.readFileSync(file);assert.ok(bytes.length>1000000,'Installer is not empty');
+const digest=crypto.createHash('sha256').update(bytes).digest('hex');
+fs.writeFileSync(path.resolve('release',`SHA256SUMS-${version}.txt`),`${digest}  ${name}\n`,'utf8');
+console.log(JSON.stringify({version,file,bytes:bytes.length,sha256:digest,packagedFileCount:names.length,privateFiles:0},null,2));

@@ -199,6 +199,11 @@ export interface ReaderSettings {
   voicePagingOnly: boolean;
   /** Preferred system voice URI, when available. */
   ttsVoiceURI?: string;
+  /** Saved personal voice; undefined keeps system TTS. */
+  narrationVoiceId?: string;
+  /** Per-book personal voice choice. Empty string explicitly selects system TTS. */
+  narrationVoices?: Record<string, string>;
+  narrationClickToRead?: boolean;
   /** PDF: single page or continuous scroll. Reflow is retained for old saved settings. */
   pdfMode: 'single' | 'scroll' | 'reflow';
   /** PDF page fitting mode. Custom uses pdfScale as a percentage. */

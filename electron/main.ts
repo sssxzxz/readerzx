@@ -5,12 +5,22 @@ import path from 'node:path';
 import { registerFileHandlers } from './ipc/fileHandlers';
 import { registerStoreHandlers } from './ipc/storeHandlers';
 import { registerVoiceHandlers } from './ipc/voiceHandlers';
+import { registerNarrationHandlers } from './ipc/narrationHandlers';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 
 app.setName('ereader');
+if(process.env.EREADER_USER_DATA)app.setPath('userData',path.resolve(process.env.EREADER_USER_DATA));
+let closeNarration:(()=>Promise<void>)|undefined;
+let shutdownReady=false;
+app.on('before-quit',event=>{
+  if(shutdownReady||!closeNarration)return;
+  event.preventDefault();
+  const close=closeNarration;closeNarration=undefined;
+  void close().catch(console.error).finally(()=>{shutdownReady=true;app.quit();});
+});
 
 const remoteDebuggingPort = process.env['EREADER_REMOTE_DEBUGGING_PORT'];
 if (remoteDebuggingPort && /^\d+$/.test(remoteDebuggingPort)) {
@@ -141,6 +151,7 @@ app.whenReady().then(() => {
   registerStoreHandlers();
   registerWindowHandlers();
   registerVoiceHandlers(() => mainWindow);
+  closeNarration=registerNarrationHandlers();
   buildMenu();
   createWindow();
   // Notify renderer when fullscreen state flips (e.g., user pressed Esc)

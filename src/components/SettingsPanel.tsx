@@ -52,7 +52,7 @@ const FONTS = [
   { name: 'Sans (英文)', value: 'system-ui, sans-serif' },
 ];
 
-export default function SettingsPanel() {
+export default function SettingsPanel({onOpenNarration}:{onOpenNarration?:()=>void}) {
   const {
     showSettings,
     toggleSettings,
@@ -611,6 +611,7 @@ export default function SettingsPanel() {
 
           {tab === 'tts' && (
             <>
+              <button className="w-full rounded border border-muted/30 p-2 hover:bg-muted/20 text-sm" onClick={()=>{toggleSettings();onOpenNarration?.();}}>我的音色 · 试听与整书生成</button>
               <div>
                 <label className="font-semibold text-sm flex justify-between mb-2">
                   <span>朗读语速</span>

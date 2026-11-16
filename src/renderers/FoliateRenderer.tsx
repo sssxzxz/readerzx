@@ -16,8 +16,13 @@ import type {
 import { PRESET_THEMES } from '@shared/types';
 import { useReaderStore } from '@/store/useReaderStore';
 import { eventToKeyString } from '@/lib/keys';
+import type { NarrationText, SpeechPosition } from '@shared/narration';
+import { flattenSpeechDocument, offsetInDocument, rangeAtOffset, speechCaret, highlightSpeech } from '@/lib/narrationText';
 
 export interface RendererHandle {
+  getNarrationText?: () => Promise<NarrationText>;
+  getSpeechPosition?: () => Promise<SpeechPosition|null> | SpeechPosition|null;
+  showSpeechPosition?: (position:SpeechPosition) => void;
   next: () => void;
   prev: () => void;
   goTo: (loc: string) => void;
@@ -60,6 +65,7 @@ export interface TtsSnapshot {
 }
 
 interface Props {
+  onSpeechClick?: (position:SpeechPosition) => void;
   book: OpenedBook;
   settings: ReaderSettings;
   seekTo: string | null;
@@ -131,6 +137,7 @@ function buildContentCss(settings: ReaderSettings, colors: ThemeColors): string 
     h4, h5, h6 { font-size: ${Math.round(size * 1.1)}px !important; ${forceWeight ? `font-weight: ${Math.min(900, weight + 100)} !important;` : ''} }
     a, a:link, a:visited { color: ${link}; ${weightRule} }
     img, svg { max-width: 100%; height: auto; }
+    ::highlight(narration-current) { background: rgba(250,204,21,.28); }
     pre { white-space: pre-wrap !important; font-size: ${size}px !important; ${weightRule} }
   `;
 }
@@ -150,6 +157,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
     onIframeButtonClick,
     onIframeWheel,
     onHighlightCommitted,
+    onSpeechClick,
   },
   ref,
 ) {
@@ -188,6 +196,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
   const drawnRef = useRef<Map<string, string>>(new Map());
   /** Latest values for callbacks fired from iframe listeners (avoids re-attaching). */
   const callbacksRef = useRef({
+    onSpeechClick,
     onPointerActivity,
     onIframeAreaClick,
     onIframeButtonClick,
@@ -196,6 +205,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
     defaultHighlightColor,
   });
   callbacksRef.current = {
+    onSpeechClick,
     onPointerActivity,
     onIframeAreaClick,
     onIframeButtonClick,
@@ -372,7 +382,7 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
     };
     // Re-mount whenever a different book is opened
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book.id]);
+  }, [book.id,book.data]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -560,6 +570,16 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
       // Overlayer.hitTest will already have emitted `show-annotation`.
       const overlayer = findOverlayer(viewRef.current, doc);
       if (overlayer?.hitTest?.({ x: ev.clientX, y: ev.clientY })?.[0]) return;
+
+      if(callbacksRef.current.onSpeechClick) {
+        const range=speechCaret(doc,ev.clientX,ev.clientY);
+        const content=viewRef.current?.renderer?.getContents?.().find((c:any)=>c.doc===doc);
+        if(range&&content) {
+          const offset=offsetInDocument(doc,range.startContainer,range.startOffset);
+          if(offset!==null)callbacksRef.current.onSpeechClick({section:content.index,offset,location:String(content.index)});
+        }
+        return;
+      }
 
       const cb = callbacksRef.current.onIframeAreaClick;
       if (!cb) return;
@@ -750,6 +770,33 @@ const FoliateRenderer = forwardRef<RendererHandle, Props>(function FoliateRender
   }
 
   useImperativeHandle(ref, () => ({
+    getNarrationText: async () => {
+      const view=viewRef.current;
+      if(!view?.book?.sections)throw new Error('书籍尚未加载完成');
+      const result:NarrationText={sections:[],warnings:[]};
+      for(let i=0;i<view.book.sections.length;i++) {
+        if(viewRef.current!==view)throw new Error('书籍已切换');
+        const section=view.book.sections[i];if(section.linear==='no')continue;
+        try {
+          const doc=await section.createDocument();
+          result.sections.push({section:i,location:String(i),text:flattenSpeechDocument(doc).text});
+        } catch { result.warnings.push(`第 ${i+1} 节无法提取文字`); }
+        if(i%4===0)await new Promise(r=>setTimeout(r,0));
+      }
+      return result;
+    },
+    getSpeechPosition: () => {
+      const view=viewRef.current,contents=view?.renderer?.getContents?.()??[];
+      const active=contents.find((c:any)=>isDocVisible(c.doc))??contents[0];if(!active)return null;
+      let offset=0;
+      try {const resolved=view.resolveNavigation(lastLocationRef.current);const range=resolved?.anchor?.(active.doc);if(range?.startContainer)offset=offsetInDocument(active.doc,range.startContainer,range.startOffset)??0;}catch{}
+      return {section:active.index,offset,location:lastLocationRef.current??String(active.index)};
+    },
+    showSpeechPosition: (position) => queueNavigation(async view => {
+      await view.renderer.goTo({index:position.section,anchor:(doc:Document)=>rangeAtOffset(doc,position.offset,position.end??position.offset+1)});
+      const content=view.renderer?.getContents?.().find((c:any)=>c.index===position.section);
+      if(content)highlightSpeech(content.doc,rangeAtOffset(content.doc,position.offset,position.end??position.offset+1));
+    }),
     next: () => queueNavigation((view) => view.next?.()),
     prev: () => queueNavigation((view) => view.prev?.()),
     goTo: (loc: string) => queueNavigation((view) => view.goTo?.(loc)),

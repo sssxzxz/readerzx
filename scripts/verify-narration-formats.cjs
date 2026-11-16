@@ -1,0 +1,36 @@
+const t=require('./verify-narration-ui.cjs');const fs=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function crc32(buf){let c=-1;for(const b of buf){c^=b;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^-1)>>>0;}
+function zip(files){const local=[],central=[];let offset=0;for(const [name,value] of Object.entries(files)){const n=Buffer.from(name),b=Buffer.from(value),head=Buffer.alloc(30);head.writeUInt32LE(0x04034b50);head.writeUInt16LE(20,4);head.writeUInt32LE(crc32(b),14);head.writeUInt32LE(b.length,18);head.writeUInt32LE(b.length,22);head.writeUInt16LE(n.length,26);local.push(head,n,b);const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50);c.writeUInt16LE(20,4);c.writeUInt16LE(20,6);c.writeUInt32LE(crc32(b),16);c.writeUInt32LE(b.length,20);c.writeUInt32LE(b.length,24);c.writeUInt16LE(n.length,28);c.writeUInt32LE(offset,42);central.push(c,n);offset+=head.length+n.length+b.length;}const cb=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(Object.keys(files).length,8);end.writeUInt16LE(Object.keys(files).length,10);end.writeUInt32LE(cb.length,12);end.writeUInt32LE(offset,16);return Buffer.concat([...local,cb,end]);}
+const xhtml=body=>`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>测试</title></head><body>${body}</body></html>`;
+const epub=path.join(t.root,'两章测试.epub');fs.writeFileSync(epub,zip({
+ mimetype:'application/epub+zip','META-INF/container.xml':'<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+ 'content.opf':'<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">narration-test</dc:identifier><dc:title>两章测试</dc:title><dc:language>zh</dc:language></metadata><manifest><item id="c1" href="1.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="2.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>',
+ '1.xhtml':xhtml('<p>春天的风很轻。</p><p>窗外阳光正好。</p>'),'2.xhtml':xhtml('<p>今天继续读书。</p><p>路上鸟儿鸣叫。</p><p>我们慢慢向前走。</p>'),
+ 'nav.xhtml':xhtml('<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc"><ol><li><a href="1.xhtml">第一章</a></li><li><a href="2.xhtml">第二章</a></li></ol></nav>')
+}));
+const pdf=path.join(t.root,'PDF两页测试.pdf');
+const streams=['BT /F1 24 Tf 50 700 Td (The morning is quiet.) Tj 0 -50 Td (We continue reading.) Tj ET',''];
+const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',...streams.map(s=>`<< /Length ${s.length} >>\nstream\n${s}\nendstream`)];
+let body='%PDF-1.4\n',offsets=[0];objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(body));body+=`${i+1} 0 obj\n${o}\nendobj\n`;});const start=Buffer.byteLength(body);body+=`xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;fs.writeFileSync(pdf,body);
+async function clickDocumentText(text){
+ const point=await t.evaluate(`(()=>{const f=[...document.querySelector('foliate-view').renderer.getContents()].find(c=>c.doc.body.innerText.includes(${JSON.stringify(text)}));const w=f.doc.createTreeWalker(f.doc.body,NodeFilter.SHOW_TEXT);let n;while(n=w.nextNode()){const i=n.textContent.indexOf(${JSON.stringify(text)});if(i>=0){const r=f.doc.createRange();r.setStart(n,i);r.setEnd(n,i+1);const b=r.getBoundingClientRect(),frame=f.doc.defaultView.frameElement.getBoundingClientRect();return {x:frame.left+b.left+b.width/2,y:frame.top+b.top+b.height/2}}}})()`);
+ await t.send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await t.send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
+}
+async function main(){
+ await t.launch();const sample=require('./narration-test-config.cjs').reference();const voice=await t.evaluate(`window.api.narration.importReference('测试音色',${JSON.stringify(sample.text)},${JSON.stringify(sample.audio)})`);
+ await t.evaluate(`window.api.loadSettings().then(s=>window.api.saveSettings({...s,narrationVoiceId:${JSON.stringify(voice.id)},narrationClickToRead:true,fontSize:36,clickPaging:true}))`);await t.evaluate('location.reload()').catch(()=>{});await delay(600);
+ await t.openFile(epub);await t.waitFor(`document.querySelector('foliate-view')?.renderer?.getContents?.().some(c=>c.doc.body?.innerText.includes('春天'))`);
+ await t.clickText('声音与听书');await t.clickText('生成整本书');await t.waitFor(`window.api.narration.state().then(s=>s.jobs.some(j=>j.format==='epub'&&j.status==='complete'))`,120000);
+ let state=await t.evaluate('window.api.narration.state()'),job=await t.evaluate(`window.api.narration.job(${JSON.stringify(state.jobs.find(j=>j.format==='epub').id)})`);
+ assert.equal(job.segments.length,5,'all unseen EPUB chapters extracted');assert.deepEqual([...new Set(job.segments.map(s=>s.section))],[0,1]);
+ await t.clickText('关闭');await t.evaluate(`window.__starts=[];window.addEventListener('narration-playback-start',e=>window.__starts.push(e.detail))`);
+ await clickDocumentText('窗外');await t.waitFor('window.__starts.length>0');assert.equal((await t.evaluate('window.__starts[0]')).segment,1);
+ await t.waitFor('window.__starts.some(s=>s.segment===2)',15000);await t.waitFor(`document.querySelector('foliate-view')?.renderer?.getContents?.().some(c=>c.doc.body?.innerText.includes('今天继续'))`);await t.clickText('停止');
+ const epubResults={segments:5,chapters:2,clicked:1,continuousNextChapter:true};
+ await t.openFile(pdf);await t.waitFor(`document.querySelector('.textLayer')?.innerText.includes('morning')`);await t.clickText('声音与听书');await t.clickText('生成整本书');await t.waitFor(`window.api.narration.state().then(s=>s.jobs.some(j=>j.format==='pdf'&&j.status==='complete'))`,120000);
+ state=await t.evaluate('window.api.narration.state()');job=await t.evaluate(`window.api.narration.job(${JSON.stringify(state.jobs.find(j=>j.format==='pdf').id)})`);assert.equal(job.segments.length,2);assert.ok(job.warnings.some(w=>w.includes('第 2 页')),'image/empty page explained');
+ await t.clickText('关闭');const pdfClick=await t.measure('We continue reading.',false);assert.equal(pdfClick.segment,1,'PDF item offset resolves second sentence');
+ const report={ok:true,epub:epubResults,pdf:{segments:2,warnings:job.warnings,clicked:pdfClick.segment},root:t.root};fs.writeFileSync(path.join(t.root,'format-results.json'),JSON.stringify(report,null,2));console.log(report);
+}
+main().catch(e=>{console.error(e);fs.writeFileSync(path.join(t.root,'format-failure.txt'),e.stack);process.exitCode=1;}).finally(t.shutdown);

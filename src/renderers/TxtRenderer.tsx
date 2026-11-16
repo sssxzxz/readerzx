@@ -11,8 +11,11 @@ import type { Highlight, OpenedBook, ReaderSettings, SearchResult } from '@share
 import { decodeText } from '@/lib/encoding';
 import { useReaderStore } from '@/store/useReaderStore';
 import type { RendererHandle, TocItem, TtsSnapshot } from './FoliateRenderer';
+import type { SpeechPosition } from '@shared/narration';
+import { speechCaret } from '@/lib/narrationText';
 
 interface Props {
+  onSpeechClick?: (position:SpeechPosition)=>void;
   book: OpenedBook;
   settings: ReaderSettings;
   seekTo: string | null;
@@ -23,7 +26,7 @@ interface Props {
 
 const TXT_CACHE_LIMIT = 3;
 const UNMEASURED_PAGE_CHAR_LIMIT = 4000;
-const decodedTextCache = new Map<string, { text: string; toc: TocItem[] }>();
+const decodedTextCache = new Map<string, { data:ArrayBuffer; text: string; toc: TocItem[] }>();
 
 /**
  * High-performance TXT renderer.
@@ -41,11 +44,19 @@ const decodedTextCache = new Map<string, { text: string; toc: TocItem[] }>();
  * convert any DOM Range back to global char offsets.
  */
 const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
-  { book, settings, seekTo, onProgress, onTocReady, onError },
+  { book, settings, seekTo, onProgress, onTocReady, onError, onSpeechClick },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
+  const speechDown=useRef({x:0,y:0});
+  const speechClick=(event:React.MouseEvent)=>{
+    if(!onSpeechClick||event.button!==0||Math.abs(event.clientX-speechDown.current.x)>5||Math.abs(event.clientY-speechDown.current.y)>5||!window.getSelection()?.isCollapsed)return;
+    const range=speechCaret(document,event.clientX,event.clientY);
+    if(!range||!containerRef.current?.contains(range.startContainer))return;
+    const offset=nodeToGlobalOffset(range.startContainer,range.startOffset);
+    if(offset!==null){event.stopPropagation();onSpeechClick({section:0,offset,location:String(offset)});}
+  };
   const [text, setText] = useState<string>('');
   const [innerSize, setInnerSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
@@ -77,6 +88,7 @@ const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
   useEffect(() => {
     try {
       let cached = decodedTextCache.get(book.id);
+      if(cached?.data!==book.data)cached=undefined;
       if (cached) {
         decodedTextCache.delete(book.id);
         decodedTextCache.set(book.id, cached);
@@ -88,7 +100,7 @@ const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
         while ((m = re.exec(decoded)) !== null) {
           toc.push({ label: m[1].trim().slice(0, 60), href: String(m.index) });
         }
-        cached = { text: decoded, toc };
+        cached = { data:book.data, text: decoded, toc };
         decodedTextCache.set(book.id, cached);
         while (decodedTextCache.size > TXT_CACHE_LIMIT) {
           const oldestId = decodedTextCache.keys().next().value as string | undefined;
@@ -104,7 +116,7 @@ const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
       onError(`无法解码文本：${err?.message ?? err}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book.id]);
+  }, [book.id,book.data]);
 
   // Track container inner dimensions
   useEffect(() => {
@@ -377,6 +389,9 @@ const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
   );
 
   useImperativeHandle(ref, () => ({
+    getNarrationText: async () => ({sections:[{section:0,text,location:'0'}],warnings:[]}),
+    getSpeechPosition: () => {const offset=layoutRef.current==='vertical'?anchorOffsetRef.current:(pageOffsetsRef.current[currentPage]??0);return {section:0,offset,location:String(offset)};},
+    showSpeechPosition: position => jumpToOffset(position.offset),
     next: () => {
       if (layoutRef.current === 'vertical') {
         const el = scrollRef.current;
@@ -491,6 +506,8 @@ const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
       <div
         ref={containerRef}
         className="reader-content w-full h-full overflow-hidden relative"
+        onMouseDown={e=>{speechDown.current={x:e.clientX,y:e.clientY};}}
+        onClick={speechClick}
         style={{
           padding: `${settings.pageMargin}px`,
           boxSizing: 'border-box',
@@ -523,6 +540,8 @@ const TxtRenderer = forwardRef<RendererHandle, Props>(function TxtRenderer(
     <div
       ref={containerRef}
       className="reader-content w-full h-full overflow-hidden relative"
+      onMouseDown={e=>{speechDown.current={x:e.clientX,y:e.clientY};}}
+      onClick={speechClick}
       style={{
         padding: `${settings.pageMargin}px`,
         boxSizing: 'border-box',

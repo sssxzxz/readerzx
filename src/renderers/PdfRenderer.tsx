@@ -14,10 +14,13 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { OpenedBook, ReaderSettings, SearchResult } from '@shared/types';
 import type { RendererHandle, TocItem, TtsSnapshot } from './FoliateRenderer';
 import { loadPdfWithRetry, type PdfLoadAttempt } from '@/lib/pdfLoading';
+import type { NarrationText, SpeechPosition } from '@shared/narration';
+import { speechCaret } from '@/lib/narrationText';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface Props {
+  onSpeechClick?: (position:SpeechPosition)=>void;
   book: OpenedBook;
   settings: ReaderSettings;
   seekTo: string | null;
@@ -62,6 +65,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
     onPdfScaleChange,
     onAreaClick,
     onButtonClick,
+    onSpeechClick,
   },
   ref,
 ) {
@@ -74,6 +78,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
   const currentPageRef = useRef(1);
   const numPagesRef = useRef(0);
   const [loadingMsg, setLoadingMsg] = useState('');
+  const speechDown=useRef({x:0,y:0});
 
   useEffect(() => {
     let cancelled = false;
@@ -202,7 +207,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
     return cleanup;
     // Recreate the official viewer only when the book or fixed/single mode changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book.id, settings.pdfMode]);
+  }, [book.id, book.data, settings.pdfMode]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -285,6 +290,23 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
   }, [book.id, onPdfScaleChange]);
 
   useImperativeHandle(ref, () => ({
+    getNarrationText: async () => {
+      const doc=docRef.current;if(!doc)throw new Error('PDF 尚未加载完成');
+      const result:NarrationText={sections:[],warnings:[]};
+      for(let page=1;page<=doc.numPages;page++) {
+        if(docRef.current!==doc)throw new Error('书籍已切换');
+        try {
+          const content=await (await doc.getPage(page)).getTextContent();
+          const text=content.items.filter((it:any)=>typeof it.str==='string').map((it:any)=>it.str).join(' ');
+          result.sections.push({section:page-1,location:String(page),text});
+          if(!text.trim())result.warnings.push(`第 ${page} 页没有可提取文字，可能是扫描图片`);
+        } catch {result.warnings.push(`第 ${page} 页提取失败`);}
+        if(page%4===0)await new Promise(r=>setTimeout(r,0));
+      }
+      return result;
+    },
+    getSpeechPosition: () => ({section:currentPageRef.current-1,offset:0,location:String(currentPageRef.current)}),
+    showSpeechPosition: position => {const viewer=apiRef.current?.viewer;if(viewer)viewer.currentPageNumber=position.section+1;},
     next: () => {
       const viewer = apiRef.current?.viewer;
       const container = containerRef.current;
@@ -386,6 +408,20 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
         className="pdf-reader-container absolute inset-0 overflow-auto scrollbar-thin"
         style={{ '--pdf-page-margin': `${settings.pageMargin}px` } as CSSProperties}
         onClick={(event) => {
+          if(onSpeechClick) {
+            if(event.button!==0||shouldIgnorePdfClick(event.target)||!window.getSelection()?.isCollapsed||Math.abs(event.clientX-speechDown.current.x)>5||Math.abs(event.clientY-speechDown.current.y)>5)return;
+            const range=speechCaret(document,event.clientX,event.clientY);
+            const pageEl=(event.target as HTMLElement).closest<HTMLElement>('.page[data-page-number]');
+            if(!range||!pageEl)return;
+            const page=Number(pageEl.dataset.pageNumber);
+            const mapping=apiRef.current?.viewer?.getPageView(page-1)?.textLayer?.highlighter;
+            const divs:HTMLElement[]=mapping?.textDivs??[], strings:string[]=mapping?.textContentItemsStr??[];
+            const index=divs.findIndex(d=>d.contains(range.startContainer));
+            if(index<0||strings.length!==divs.length)return;
+            const prefix=document.createRange();prefix.selectNodeContents(divs[index]);prefix.setEnd(range.startContainer,range.startOffset);
+            const offset=strings.slice(0,index).reduce((n,s)=>n+s.length+1,0)+prefix.toString().length;
+            onSpeechClick({section:page-1,offset,location:String(page)});return;
+          }
           if (!onAreaClick || event.button !== 0 || shouldIgnorePdfClick(event.target)) return;
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed) return;
@@ -400,6 +436,7 @@ const PdfRenderer = forwardRef<RendererHandle, Props>(function PdfRenderer(
           onButtonClick(event.button);
         }}
         onMouseDown={(event) => {
+          speechDown.current={x:event.clientX,y:event.clientY};
           if (event.button === 1) event.preventDefault();
         }}
         onContextMenu={(event) => {

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { VoiceEvent } from '../shared/voice';
+import type { NarrationApi } from '../shared/narration';
 import type {
   Highlight,
   ReaderSettings,
@@ -8,7 +9,24 @@ import type {
   OpenedBook,
 } from '../shared/types';
 
+const narration:NarrationApi={
+  setPlaybackActive:active=>ipcRenderer.send('narration:playback-active',active),
+  state:()=>ipcRenderer.invoke('narration:state'),
+  configure:r=>ipcRenderer.invoke('narration:configure',r),
+  importReference:(name,text,file)=>ipcRenderer.invoke('narration:importReference',name,text,file),
+  renameVoice:(id,name)=>ipcRenderer.invoke('narration:renameVoice',id,name),
+  deleteVoice:id=>ipcRenderer.invoke('narration:deleteVoice',id),
+  referenceAudio:id=>ipcRenderer.invoke('narration:referenceAudio',id),
+  preview:(id,text)=>ipcRenderer.invoke('narration:preview',id,text),
+  createJob:(book,id)=>ipcRenderer.invoke('narration:createJob',book,id),
+  job:id=>ipcRenderer.invoke('narration:job',id),
+  control:(id,action)=>ipcRenderer.invoke('narration:control',id,action),
+  prioritize:(id,segment)=>ipcRenderer.invoke('narration:prioritize',id,segment),
+  audio:(id,segment)=>ipcRenderer.invoke('narration:audio',id,segment),
+  onChange:cb=>{const fn=()=>cb();ipcRenderer.on('narration:changed',fn);return ()=>ipcRenderer.removeListener('narration:changed',fn);},
+};
 const api = {
+  narration,
   startVoiceControl: (sessionId: number): Promise<void> => ipcRenderer.invoke('voice:start', sessionId),
   stopVoiceControl: (): Promise<void> => ipcRenderer.invoke('voice:stop'),
   onVoiceEvent: (cb: (event: VoiceEvent) => void) => {

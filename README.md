@@ -16,7 +16,17 @@
   - 拖放打开、最近阅读列表、目录跳转
   - PDF 三种模式：连续滚动 / 单页 / 重排文本（适配大字体）
 
-## 开发
+## 个人声音朗读（0.2.0，需额外配置本地声音环境）
+
+工具栏「声音与听书」提供音色库、生成前试听、整本后台生成和正文点读。已完成的句子立即可读，未完成的位置优先生成，退出后可以继续生成。
+
+当前用户评价为「音色尚可，但是太慢了」：测试电脑上已生成内容约 0.10 秒响应，新内容约需 47 秒生成一分钟音频，尚未达到 Windows TTS 的合成速度。
+
+[下载 Windows 安装包](https://github.com/sssxzxz/readerzx/releases/latest) · [声音功能及环境配置](docs/personal-voice.md) · [项目报告](docs/个人声音朗读项目报告.md)
+
+安装包不包含声音模型、Python、FFmpeg 或个人录音；普通阅读与系统朗读可以独立使用。
+
+## 开发环境
 
 ```bash
 npm install
@@ -101,7 +111,7 @@ Windows ICO 文件可放 `build/icon.ico`。
 所有设置和阅读进度位于：
 
 ```
-%APPDATA%\阅读器\ereader.json
+%APPDATA%\ereader\ereader.json
 ```
 
 删除此文件即可重置所有设置。
